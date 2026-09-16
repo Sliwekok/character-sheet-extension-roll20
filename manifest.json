@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "Character Sheet → Roll20 Chat",
+  "description": "Forwards rolls made on your D&D character sheet straight into Roll20's chat window.",
+  "version": "1.0",
+
+  "action": {
+    "default_popup": "app/html/popup.html",
+    "default_icon": {
+      "16": "assets/icon16.png",
+      "32": "assets/icon32.png",
+      "48": "assets/icon48.png",
+      "128": "assets/icon128.png"
+    }
+  },
+
+  "icons": {
+    "16": "assets/icon16.png",
+    "32": "assets/icon32.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  },
+
+  "permissions": ["storage", "tabs"],
+
+  "host_permissions": [
+    "*://app.roll20.net/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+
+  "content_scripts": [
+    {
+      "matches": ["*://app.roll20.net/*"],
+      "js": ["app/js/roll20-content.js"]
+    },
+    {
+      "matches": ["http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["app/js/bridge-content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "background": {
+    "service_worker": "app/js/background.js",
+    "type": "module"
+  }
+}

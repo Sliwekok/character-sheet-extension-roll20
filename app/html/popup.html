@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Character Sheet &rarr; Roll20</title>
+    <link rel="stylesheet" href="../css/popup.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <img src="../../assets/icon32.png" alt="" class="logo" />
+        <h1 class="title">Sheet &rarr; Roll20</h1>
+      </header>
+
+      <div id="status" class="status">Checking&hellip;</div>
+
+      <label class="toggle-row">
+        <input type="checkbox" id="autoForwardToggle" />
+        Auto-forward rolls
+      </label>
+
+      <div class="actions">
+        <button id="testBtn" class="btn btn-primary">Send test roll</button>
+        <button id="clearBtn" class="btn btn-secondary">Clear log</button>
+      </div>
+
+      <h2 class="section-title">Recent rolls</h2>
+      <div id="log" class="log"></div>
+
+      <footer class="footer">
+        <small>Open a character sheet tab and roll to forward automatically.</small>
+      </footer>
+    </div>
+    <script src="../js/popup.js"></script>
+  </body>
+</html>
