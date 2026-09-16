@@ -88,3 +88,6 @@ extension.
   Roll20's own dice engine.
 - If several Roll20 tabs are open (e.g. two tabs on the same game), the
   roll is sent to all of them.
+
+## Character sheet app
+For the character sheet app itself, see [character-sheet](https://github.com/Sliwekok/character-sheet) 
