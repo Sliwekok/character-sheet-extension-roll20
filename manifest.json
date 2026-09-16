@@ -26,7 +26,8 @@
   "host_permissions": [
     "*://app.roll20.net/*",
     "http://localhost/*",
-    "http://127.0.0.1/*"
+    "http://127.0.0.1/*",
+    "http://dominiksliwek.duckdns.org/*"
   ],
 
   "content_scripts": [
@@ -35,7 +36,7 @@
       "js": ["app/js/roll20-content.js"]
     },
     {
-      "matches": ["http://localhost/*", "http://127.0.0.1/*"],
+      "matches": ["http://localhost/*", "http://127.0.0.1/*", "http://dominiksliwek.duckdns.org/*"],
       "js": ["app/js/bridge-content.js"],
       "run_at": "document_idle"
     }
