@@ -348,11 +348,16 @@
     const engine = window.__csDnd2024;
     const tally = new Map();
     let scanned = 0;
-    const candidates = campaign().characters.models.filter(
-      (c) => c.id !== excludeId && c.get("charactersheetname") === "dnd2024byroll20"
-    );
+    // Characters whose HP was ever set (summary shows current > 0) are the ones that have the section.
+    const hpOf = (c) => {
+      const hp = engine.readMetaHp(c.get("custom_meta1"));
+      return hp ? hp.current : 0;
+    };
+    const candidates = campaign()
+      .characters.models.filter((c) => c.id !== excludeId && c.get("charactersheetname") === "dnd2024byroll20")
+      .sort((a, b) => (hpOf(b) > 0) - (hpOf(a) > 0));
     for (const c of candidates) {
-      if (scanned >= 30 || [...tally.values()].some((t) => t.count >= 3)) break;
+      if (scanned >= 80 || [...tally.values()].some((t) => t.count >= 3)) break;
       try {
         await loadAttribs(c);
       } catch {
@@ -372,6 +377,7 @@
     }
     const best = [...tally.values()].sort((a, b) => b.count - a.count)[0];
     window.__csHpSection = best ? best.section : null;
+    window.__csHpSectionInfo = best ? `${best.section.key} (seen in ${best.count} of ${scanned} characters)` : `not found in ${scanned} characters`;
     return window.__csHpSection;
   }
 
@@ -412,7 +418,9 @@
   /**
    * Links every token of this character (on loaded pages) - and its default
    * token - so bar 1 shows HP and bar 2 shows AC. On advanced sheets a bar
-   * link is the sheet's computed property name ("hp" gives current/max).
+   * link is the sheet's computed property name, as-is: Roll20 passes it
+   * straight to the sheet ("sheetattr_hp" fails with "Unable to find
+   * property"). "hp" gives current/max.
    */
   async function linkTokenBars(character) {
     const links = { bar1_link: "hp", bar2_link: "ac" };
@@ -505,8 +513,9 @@
     const warnings = [...result.notes];
     await wait(1500); // let the sheet engine pick up the new store
     const hp = await setCurrentHp2024(character, exportData.hp.current, exportData.hp.max, exportData.sheetCharacterId);
-    if (!hp.ok) warnings.push(`${hp.error} Max HP is set; current HP is ${exportData.hp.current}.`);
+    if (!hp.ok) warnings.push(`${hp.error} Max HP is set; current HP is ${exportData.hp.current}. (HP section: ${window.__csHpSectionInfo || "not searched"})`);
     else if (hp.verified === null) warnings.push("Current HP was written, but Roll20 didn't let the extension read it back - check it on the sheet once.");
+    if (hp.ok) warnings.push(`HP written via ${hp.via}${window.__csHpSectionInfo ? ` - section ${window.__csHpSectionInfo}` : ""}.`);
     const bars = await linkTokenBars(character);
     if (bars.tokens === 0 && !bars.defaultToken) warnings.push("No token for this character yet - drag it onto the map and sync again to link bar 1 to HP and bar 2 to AC.");
     refreshTokens(character);

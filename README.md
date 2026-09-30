@@ -141,7 +141,9 @@ numbers, exactly as for a character made with Roll20's own builder.
   in their store that matches it (or the damage taken) is the spot. Every
   write is read back from Roll20; a wrong guess is reported and re-learned.
 - Token bars: every token of a synced character (and its default token) gets
-  **bar 1 linked to HP** (current/max) and **bar 2 linked to AC**. If the
+  **bar 1 linked to HP** (current/max) and **bar 2 linked to AC** - the links
+  are the sheet's property names `hp` / `ac` (Roll20 hands them straight to
+  the sheet; a `sheetattr_` prefix fails with "Unable to find property"). If the
   character has no token yet, drag it onto the map and sync again.
 - Every entry the sync writes is tagged (`builderIteration: "cs-sync"`, stable
   ids), so a re-sync replaces exactly those and leaves the sheet's defaults

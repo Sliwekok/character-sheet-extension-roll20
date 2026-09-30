@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Character Sheet → Roll20",
   "description": "Forwards rolls from your D&D character sheet into Roll20 chat, and syncs whole characters (with live HP) into your Roll20 game.",
-  "version": "1.4",
+  "version": "1.6",
   "minimum_chrome_version": "111",
   "action": {
     "default_popup": "app/html/popup.html",
