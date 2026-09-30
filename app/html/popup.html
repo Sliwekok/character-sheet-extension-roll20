@@ -25,11 +25,28 @@
         <button id="clearBtn" class="btn btn-secondary">Clear log</button>
       </div>
 
-      <h2 class="section-title">Recent rolls</h2>
+      <h2 class="section-title">Character sync</h2>
+      <div id="syncStatus" class="status">Checking Roll20 game&hellip;</div>
+      <label class="field-row">
+        Roll20 sheet
+        <select id="profileSelect" class="select">
+          <option value="auto">Auto-detect</option>
+          <option value="dnd2024">D&amp;D 2024 by Roll20</option>
+          <option value="bio">Bio only (any sheet)</option>
+        </select>
+      </label>
+      <div id="links" class="links"></div>
+      <div class="actions">
+        <input id="inspectName" class="input" placeholder="Character name (optional)" />
+        <button id="inspectBtn" class="btn btn-secondary">Inspect</button>
+      </div>
+      <small class="hint">Inspect saves one Roll20 character's raw data as a file (read-only) - used to map a sheet's fields.</small>
+
+      <h2 class="section-title">Recent activity</h2>
       <div id="log" class="log"></div>
 
       <footer class="footer">
-        <small>Open a character sheet tab and roll to forward automatically.</small>
+        <small>Rolls forward automatically. Press "Sync with Roll20" on a character sheet to send the whole character; its HP then streams live.</small>
       </footer>
     </div>
     <script src="../js/popup.js"></script>

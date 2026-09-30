@@ -1,5 +1,7 @@
 const STORAGE_KEY_LOG = "forwardedRolls";
 const STORAGE_KEY_ENABLED = "autoForwardEnabled";
+const STORAGE_KEY_PROFILE = "sheetProfile";
+const STORAGE_KEY_LINKS = "characterLinks";
 
 async function renderStatus() {
   const tabs = await chrome.tabs.query({ url: "*://app.roll20.net/*" });
@@ -63,10 +65,75 @@ async function initToggle() {
   });
 }
 
+const PROFILE_LABELS = { dnd2024: "D&D 2024 by Roll20", bio: "Bio only" };
+
+async function renderSync() {
+  const el = document.getElementById("syncStatus");
+  const info = await chrome.runtime.sendMessage({ type: "GET_ROLL20_STATUS" });
+  if (info && info.loaded) {
+    const gm = info.isGM === false ? " - you're not GM here, sync needs a GM" : "";
+    el.textContent = `Game loaded (${info.characters} characters, detected: ${PROFILE_LABELS[info.detectedProfile] || info.detectedProfile})${gm}`;
+    el.className = `status ${info.isGM === false ? "warn" : "ok"}`;
+  } else {
+    el.textContent = (info && info.error) || "Roll20 game not loaded";
+    el.className = "status warn";
+  }
+
+  const select = document.getElementById("profileSelect");
+  select.value = (info && info.profile) || "auto";
+
+  const container = document.getElementById("links");
+  container.innerHTML = "";
+  const links = Object.values((info && info.links) || {}).sort((a, b) => (b.syncedAt || 0) - (a.syncedAt || 0));
+  for (const link of links) {
+    const row = document.createElement("div");
+    row.className = "link-row";
+    const name = document.createElement("span");
+    name.textContent = link.roll20Name || link.roll20CharacterId;
+    const meta = document.createElement("span");
+    meta.className = "link-meta";
+    meta.textContent = `synced ${new Date(link.syncedAt).toLocaleDateString()} · HP live`;
+    row.append(name, meta);
+    container.appendChild(row);
+  }
+}
+
+function initProfileSelect() {
+  document.getElementById("profileSelect").addEventListener("change", (event) => {
+    chrome.storage.local.set({ [STORAGE_KEY_PROFILE]: event.target.value });
+  });
+}
+
+async function inspect() {
+  const button = document.getElementById("inspectBtn");
+  const name = document.getElementById("inspectName").value.trim();
+  button.disabled = true;
+  button.textContent = "Reading…";
+  const result = await chrome.runtime.sendMessage({ type: "INSPECT_ROLL20", name: name || undefined });
+  button.disabled = false;
+  button.textContent = "Inspect";
+  const el = document.getElementById("syncStatus");
+  if (!result || !result.ok) {
+    el.textContent = (result && result.error) || "Inspect failed";
+    el.className = "status warn";
+    return;
+  }
+  const blob = new Blob([JSON.stringify(result.dump, null, 1)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "roll20-dump.json";
+  a.click();
+  el.textContent = `Saved roll20-dump.json (${result.dump.target ? result.dump.target.attribs.length : 0} attributes)`;
+  el.className = "status ok";
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   renderStatus();
   renderLog();
   initToggle();
+  renderSync();
+  initProfileSelect();
+  document.getElementById("inspectBtn").addEventListener("click", inspect);
 
   document.getElementById("testBtn").addEventListener("click", async () => {
     await chrome.runtime.sendMessage({ type: "SEND_TEST_ROLL" });
@@ -81,4 +148,5 @@ document.addEventListener("DOMContentLoaded", () => {
 
 chrome.storage.onChanged.addListener((changes) => {
   if (changes[STORAGE_KEY_LOG]) renderLog();
+  if (changes[STORAGE_KEY_LINKS]) renderSync();
 });

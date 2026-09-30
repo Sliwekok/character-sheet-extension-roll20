@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Character Sheet → Roll20 Chat",
-  "description": "Forwards rolls made on your D&D character sheet straight into Roll20's chat window.",
-  "version": "1.0",
-
+  "name": "Character Sheet → Roll20",
+  "description": "Forwards rolls from your D&D character sheet into Roll20 chat, and syncs whole characters (with live HP) into your Roll20 game.",
+  "version": "1.4",
+  "minimum_chrome_version": "111",
   "action": {
     "default_popup": "app/html/popup.html",
     "default_icon": {
@@ -13,35 +13,58 @@
       "128": "assets/icon128.png"
     }
   },
-
   "icons": {
     "16": "assets/icon16.png",
     "32": "assets/icon32.png",
     "48": "assets/icon48.png",
     "128": "assets/icon128.png"
   },
-
-  "permissions": ["storage", "tabs"],
-
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
   "host_permissions": [
     "*://app.roll20.net/*",
     "http://localhost/*",
     "http://127.0.0.1/*",
-    "http://dominiksliwek.duckdns.org/*"
+    "http://dominiksliwek.duckdns.org/*",
+    "https://dominiksliwek.duckdns.org/*"
   ],
-
   "content_scripts": [
     {
-      "matches": ["*://app.roll20.net/*"],
-      "js": ["app/js/roll20-content.js"]
+      "matches": [
+        "*://app.roll20.net/*"
+      ],
+      "js": [
+        "app/js/roll20-content.js"
+      ]
     },
     {
-      "matches": ["http://localhost/*", "http://127.0.0.1/*", "http://dominiksliwek.duckdns.org/*"],
-      "js": ["app/js/bridge-content.js"],
+      "matches": [
+        "*://app.roll20.net/*"
+      ],
+      "js": [
+        "app/js/roll20-profiles.js",
+        "app/js/roll20-dnd2024-template.js",
+        "app/js/roll20-dnd2024.js",
+        "app/js/roll20-page.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "http://dominiksliwek.duckdns.org/*",
+        "https://dominiksliwek.duckdns.org/*"
+      ],
+      "js": [
+        "app/js/bridge-content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
-
   "background": {
     "service_worker": "app/js/background.js",
     "type": "module"

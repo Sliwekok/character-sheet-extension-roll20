@@ -147,3 +147,52 @@ body {
   font-size: 11px;
   text-align: center;
 }
+
+.field-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.select,
+.input {
+  padding: 6px 8px;
+  font-size: 12.5px;
+  border-radius: 8px;
+  border: 1px solid #3d3950;
+  background: #2a2736;
+  color: #f0eef6;
+}
+
+.input {
+  flex: 2;
+  min-width: 0;
+}
+
+.links {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.link-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #242130;
+}
+
+.link-meta {
+  color: #8b84a8;
+}
+
+.hint {
+  color: #8b84a8;
+  font-size: 11px;
+  margin-top: -6px;
+}
