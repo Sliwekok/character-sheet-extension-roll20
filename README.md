@@ -5,11 +5,40 @@ style as the `roll20-wild-magic-ext`/`roll20-move-assets` extensions) that
 watches your D&D character sheet app for rolls (weapon attacks/damage,
 spell attacks/effects, skill checks — anything that already feeds the
 sheet's Roll History widget) and forwards each one into whichever Roll20
-tab you have open, as a plain chat line, e.g.:
+tab you have open, as a Roll20 roll-template card, e.g.:
 
 ```
-**Aragorn** — Longsword — Attack roll: [14] + 5 = 19
+&{template:default} {{name=Longsword}} {{Character=Aragorn}} {{Attack roll=[[14+5]]}} {{Dice=1d20 → 14 + 5}}
 ```
+
+## Chat style and Public / GM only
+
+Built on Roll20's chat features (https://wiki.roll20.net/Text_Chat), all
+formatting lives in **`app/js/chat-format.js`**:
+
+- **Roll template (default)** — Roll20's `default` template, which exists
+  in every game whatever the character sheet: a purple header with the
+  weapon/spell/check name, then rows for the character, the result and the
+  dice. The result is an inline roll of the numbers already rolled on the
+  sheet (`[[14+5]]`), so it shows in Roll20's highlighted result box with
+  the breakdown on hover — it is not re-rolled. With advantage the kept die
+  is bold; a natural 20 / natural 1 on a d20 adds a "Critical hit" /
+  "Fumble" row (attacks) or a "Natural 20" / "Natural 1" row (checks,
+  saves). Markdown (`**bold**`) is used inside the values.
+- **Plain text line** — the original one-liner:
+  `**Aragorn** — Longsword — Attack roll: 14 + 5 = 19`.
+
+Pick the style in the popup ("Chat style"). Text coming from the sheet
+(names, labels) has `{ } [ ] |` and newlines neutralised so it can never
+open a template field, an inline roll, an `@{attribute}`/`?{query}` or a
+second chat line.
+
+**Public / GM only** is a toggle at the top of the character sheet (next
+to "Sync with Roll20"; remembered per browser). The sheet sends it with
+every roll as `visibility: "public" | "gm"`; "gm" prefixes the message with
+`/w gm `, so only the GM and the roller see it — roll templates and inline
+rolls both work inside whispers. The popup's "Test to GM" button sends a
+whispered test roll.
 
 ## How it works
 
@@ -58,6 +87,7 @@ window.postMessage(
     label,
     result,
     characterName: character?.name,
+    visibility: rollVisibility, // "public" | "gm" - header toggle
   },
   window.location.origin
 );
@@ -176,8 +206,10 @@ exact field names a profile needs.
 
 - Only sends *from* the character sheet *to* Roll20 — nothing is read back
   (HP changed on a Roll20 token doesn't flow back to the sheet).
-- The chat line is plain text your extension composed client-side, not a
-  native Roll20 `/roll` — like the wild-magic extension, this reports a
+- The chat message is composed client-side, not a native Roll20 `/roll`
+  (the inline roll only adds up numbers that were already rolled, so
+  Roll20's own crit/fumble highlighting of the result box doesn't apply —
+  the template adds its own Natural 20 / Natural 1 row instead) — like the wild-magic extension, this reports a
   roll that already happened in the browser rather than re-rolling it in
   Roll20's own dice engine.
 - If several Roll20 tabs are open (e.g. two tabs on the same game), the

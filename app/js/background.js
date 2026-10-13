@@ -4,33 +4,25 @@
 // everything routes through here so a Roll20 tab doesn't need to exist yet
 // when a roll happens, and so more than one Roll20 tab can be targeted.
 
+import { CHAT_FORMATS, DEFAULT_CHAT_FORMAT, buildChatText, buildLogText } from "./chat-format.js";
+
 const STORAGE_KEY_LOG = "forwardedRolls";
 const STORAGE_KEY_ENABLED = "autoForwardEnabled";
 /** sheetCharacterId -> { roll20CharacterId, roll20Name, campaignId, syncedAt, profile } */
 const STORAGE_KEY_LINKS = "characterLinks";
 /** "auto" | profile key from roll20-profiles.js */
 const STORAGE_KEY_PROFILE = "sheetProfile";
+/** "template" (Roll20 default roll template, default) | "plain" - see chat-format.js */
+const STORAGE_KEY_FORMAT = "chatFormat";
 const MAX_LOG = 50;
 const HP_DEBOUNCE_MS = 400;
 
-/**
- * Mirrors describeDiceRoll() from the character sheet's utils/dice.ts, so
- * the text that lands in Roll20 chat reads exactly like the result already
- * shown inline under the sheet's own "Roll ..." buttons, e.g.
- * "[14] + 5 = 19" or "[4, 6] + 3 = 13" or "8 = 8" for a flat, dice-less roll.
- */
-function describeDiceRoll(result) {
-  if (!result || !Array.isArray(result.rolls) || result.rolls.length === 0) {
-    return String(result?.total ?? "");
-  }
-  const rollsText = result.rolls.length > 1 ? `[${result.rolls.join(", ")}]` : `${result.rolls[0]}`;
-  const modifierText = result.modifier ? ` ${result.modifier >= 0 ? "+" : "-"} ${Math.abs(result.modifier)}` : "";
-  return `${rollsText}${modifierText} = ${result.total}`;
-}
+// Chat text formatting (roll template / plain, public / GM whisper) lives in
+// chat-format.js so it can be tested without Chrome.
 
-function buildChatText(payload) {
-  const who = payload.characterName ? `**${payload.characterName}**` : "**Character Sheet**";
-  return `${who} — ${payload.label}: ${describeDiceRoll(payload.result)}`;
+async function getChatFormat() {
+  const stored = await chrome.storage.local.get([STORAGE_KEY_FORMAT]);
+  return CHAT_FORMATS.includes(stored[STORAGE_KEY_FORMAT]) ? stored[STORAGE_KEY_FORMAT] : DEFAULT_CHAT_FORMAT;
 }
 
 async function isAutoForwardEnabled() {
@@ -188,9 +180,14 @@ async function inspectRoll20(name) {
   }
 }
 
-/** Sends `text` to every open Roll20 tab's chat box, logging the outcome. */
+/**
+ * Sends one roll to every open Roll20 tab's chat box, logging the outcome.
+ * `payload.visibility` ("public" | "gm", picked by the toggle on the
+ * character sheet) decides whether it's a public message or a /w gm whisper.
+ */
 async function forwardToRoll20(payload) {
-  const text = buildChatText(payload);
+  const chatText = buildChatText(payload, await getChatFormat());
+  const text = buildLogText(payload);
   const tabs = await chrome.tabs.query({ url: "*://app.roll20.net/*" });
 
   if (tabs.length === 0) {
@@ -203,7 +200,7 @@ async function forwardToRoll20(payload) {
   for (const tab of tabs) {
     if (!tab.id) continue;
     try {
-      const response = await chrome.tabs.sendMessage(tab.id, { type: "SEND_TO_ROLL20", text });
+      const response = await chrome.tabs.sendMessage(tab.id, { type: "SEND_TO_ROLL20", text: chatText });
       if (response?.ok) anyOk = true;
     } catch {
       // Content script not injected on this tab yet (e.g. still loading) -
@@ -264,9 +261,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       const roll = Math.floor(Math.random() * 20) + 1;
       await forwardToRoll20({
-        label: "Test roll",
+        label: "Test roll — Attack roll",
         characterName: "Extension",
-        result: { formula: "1d20", rolls: [roll], diceTotal: roll, modifier: 0, total: roll },
+        visibility: message.visibility === "gm" ? "gm" : "public",
+        result: { formula: "1d20", rolls: [roll], diceTotal: roll, modifier: 5, total: roll + 5 },
       });
       sendResponse?.({ ok: true });
     })();

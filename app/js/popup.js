@@ -2,6 +2,7 @@ const STORAGE_KEY_LOG = "forwardedRolls";
 const STORAGE_KEY_ENABLED = "autoForwardEnabled";
 const STORAGE_KEY_PROFILE = "sheetProfile";
 const STORAGE_KEY_LINKS = "characterLinks";
+const STORAGE_KEY_FORMAT = "chatFormat";
 
 async function renderStatus() {
   const tabs = await chrome.tabs.query({ url: "*://app.roll20.net/*" });
@@ -98,6 +99,15 @@ async function renderSync() {
   }
 }
 
+async function initFormatSelect() {
+  const select = document.getElementById("formatSelect");
+  const stored = await chrome.storage.local.get([STORAGE_KEY_FORMAT]);
+  select.value = stored[STORAGE_KEY_FORMAT] === "plain" ? "plain" : "template";
+  select.addEventListener("change", () => {
+    chrome.storage.local.set({ [STORAGE_KEY_FORMAT]: select.value });
+  });
+}
+
 function initProfileSelect() {
   document.getElementById("profileSelect").addEventListener("change", (event) => {
     chrome.storage.local.set({ [STORAGE_KEY_PROFILE]: event.target.value });
@@ -133,10 +143,16 @@ document.addEventListener("DOMContentLoaded", () => {
   initToggle();
   renderSync();
   initProfileSelect();
+  initFormatSelect();
   document.getElementById("inspectBtn").addEventListener("click", inspect);
 
   document.getElementById("testBtn").addEventListener("click", async () => {
-    await chrome.runtime.sendMessage({ type: "SEND_TEST_ROLL" });
+    await chrome.runtime.sendMessage({ type: "SEND_TEST_ROLL", visibility: "public" });
+    setTimeout(renderLog, 300);
+  });
+
+  document.getElementById("testGmBtn").addEventListener("click", async () => {
+    await chrome.runtime.sendMessage({ type: "SEND_TEST_ROLL", visibility: "gm" });
     setTimeout(renderLog, 300);
   });
 

@@ -3,7 +3,8 @@
 // somewhere else). Relays the sheet's window.postMessage broadcasts to the
 // background service worker, and posts replies back to the page:
 //
-//   ROLL            -> forwarded to Roll20 chat (from recordRoll)
+//   ROLL            -> forwarded to Roll20 chat (from recordRoll); `visibility`
+//                      "gm" makes it a /w gm whisper, anything else is public
 //   PING            -> answered right here with PONG, so the sheet knows the extension is installed
 //   SYNC_CHARACTER  -> full character export ("Sync with Roll20"); reply is SYNC_RESULT
 //   HP_UPDATE       -> HP change of an already-synced character (fire and forget)
@@ -38,6 +39,7 @@ window.addEventListener("message", (event) => {
           label: data.label,
           result: data.result,
           characterName: data.characterName,
+          visibility: data.visibility === "gm" ? "gm" : "public",
         },
       });
       break;
