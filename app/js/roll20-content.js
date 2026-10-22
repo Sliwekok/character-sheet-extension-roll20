@@ -7,6 +7,10 @@
 //    need Roll20's own game objects, which only exist in the page's context,
 //    so they're relayed to roll20-page.js (manifest "world": "MAIN") over
 //    window.postMessage and the reply is passed back to the background worker.
+// 3. HP coming back from Roll20 - tells roll20-page.js which characters are
+//    synced (WATCH, from `characterLinks` in chrome.storage) and passes its
+//    HP_CHANGED reports on to the background worker (R20_HP_CHANGED), which
+//    hands them to the character sheet tab.
 
 const FROM_ISOLATED = "cs-roll20-isolated";
 const FROM_PAGE = "cs-roll20-page";
@@ -75,3 +79,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 });
+
+// --- Roll20 -> character sheet: HP --------------------------------------------
+
+const STORAGE_KEY_LINKS = "characterLinks";
+const STORAGE_KEY_PROFILE = "sheetProfile";
+
+/** Tells roll20-page.js which Roll20 characters are linked to a character sheet character. */
+async function sendWatchList() {
+  let stored;
+  try {
+    stored = await chrome.storage.local.get([STORAGE_KEY_LINKS, STORAGE_KEY_PROFILE]);
+  } catch {
+    return; // extension was reloaded - this copy of the script is orphaned
+  }
+  const links = stored[STORAGE_KEY_LINKS] && typeof stored[STORAGE_KEY_LINKS] === "object" ? stored[STORAGE_KEY_LINKS] : {};
+  const characters = Object.entries(links)
+    .filter(([, link]) => link && link.roll20CharacterId)
+    .map(([sheetCharacterId, link]) => ({ sheetCharacterId, roll20CharacterId: link.roll20CharacterId }));
+  window.postMessage(
+    { source: FROM_ISOLATED, type: "WATCH", payload: { characters, profile: stored[STORAGE_KEY_PROFILE] || "auto" } },
+    location.origin
+  );
+}
+
+window.addEventListener("message", (event) => {
+  if (event.source !== window) return;
+  const data = event.data;
+  if (!data || data.source !== FROM_PAGE || data.requestId) return;
+  if (data.type === "PAGE_READY") sendWatchList();
+  if (data.type === "HP_CHANGED" && data.payload) {
+    try {
+      chrome.runtime.sendMessage({ type: "R20_HP_CHANGED", payload: data.payload }).catch(() => undefined);
+    } catch {
+      // extension was reloaded - reload the Roll20 tab to reconnect
+    }
+  }
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && (changes[STORAGE_KEY_LINKS] || changes[STORAGE_KEY_PROFILE])) sendWatchList();
+});
+
+sendWatchList();

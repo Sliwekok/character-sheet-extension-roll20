@@ -113,9 +113,11 @@ extension.
 The character sheet page has a **Sync with Roll20** button in its header.
 Pressing it sends the whole character to the Roll20 game open in another tab:
 the first sync creates the Roll20 character, later syncs update that same
-character. After a character has been synced once, **every HP change on the
-sheet is pushed to Roll20 automatically** (also after a page reload). Nothing
-else streams - press the button again to push other changes.
+character. After a character has been synced once, **HP stays in sync both
+ways** (also after a page reload): every HP change on the sheet is pushed to
+Roll20, and HP changed in Roll20 - on the character's Roll20 sheet or in a
+token's bar 1 bubble - comes back to the character sheet. Nothing else
+streams - press the button again to push other changes.
 
 You need to be the GM of the game (Roll20 only lets GMs create characters),
 and the game itself must be open (Launch Game), not just the campaign page.
@@ -141,6 +143,23 @@ and the game itself must be open (Launch Game), not just the campaign page.
    bio for one sheet template. Repeating rows the extension creates carry a
    hidden `cs_sync_key` field, so re-syncs update or remove only those rows
    and never touch rows you added by hand in Roll20.
+5. **HP back from Roll20.** `roll20-content.js` tells `roll20-page.js` which
+   Roll20 characters are linked (`WATCH`, from `characterLinks`), and the page
+   watches them: a poll of the sheet's computed `hp` every 1.5 s (falling back
+   to Roll20's `custom_meta1` summary; the `hp` attribute on the Bio-only
+   profile), `custom_meta1` change events, and `bar1_value` changes on the
+   character's tokens. A changed value goes out as `HP_CHANGED` →
+   `background.js` (`R20_HP_CHANGED`) → every open character sheet tab
+   (`ROLL20_HP_CHANGED` → `bridge-content.js` → page message `ROLL20_HP`),
+   and the sheet applies it if it is showing that character (clamped to its
+   max HP, death saves cleared when coming back from 0, like the header HP
+   editor). If a token bar edit doesn't reach the Roll20 sheet (bar not
+   linked, or the sheet snaps it back), the extension writes that value to the
+   Roll20 sheet as well. HP the extension writes itself (sync, sheet → Roll20
+   updates) is never echoed back, and an incoming value is dropped while a
+   newer edit from the sheet is still waiting to go out. Changes show in the
+   popup log as "HP Name ← Roll20". Set `window.__csHpWatchDebug = true` in
+   the Roll20 tab's console to log every detected change.
 
 ### Sheet templates
 
@@ -204,8 +223,10 @@ exact field names a profile needs.
 
 ## Known limitations
 
-- Only sends *from* the character sheet *to* Roll20 — nothing is read back
-  (HP changed on a Roll20 token doesn't flow back to the sheet).
+- Only HP is read back from Roll20; everything else only goes *from* the
+  character sheet *to* Roll20. HP changed in Roll20 while no character sheet
+  tab is open isn't applied later - the next HP change on either side (or a
+  sync) brings them back in line.
 - The chat message is composed client-side, not a native Roll20 `/roll`
   (the inline roll only adds up numbers that were already rolled, so
   Roll20's own crit/fumble highlighting of the result box doesn't apply —

@@ -9,6 +9,12 @@
 //   SYNC_CHARACTER  -> full character export ("Sync with Roll20"); reply is SYNC_RESULT
 //   HP_UPDATE       -> HP change of an already-synced character (fire and forget)
 //
+// and the other way round, from the background worker to the page:
+//
+//   ROLL20_HP       <- HP of a synced character was changed in Roll20 (on its
+//                      sheet or a token's bar 1); payload { sheetCharacterId,
+//                      current, max, temp, via }
+//
 // This content script runs in an isolated world - it can't see the page's
 // JS variables directly, which is exactly why the bridge is a postMessage
 // (window messaging crosses that boundary by design) rather than a shared
@@ -62,5 +68,13 @@ window.addEventListener("message", (event) => {
     case "HP_UPDATE":
       chrome.runtime.sendMessage({ type: "HP_UPDATE", payload: data.payload }).catch(() => undefined);
       break;
+  }
+});
+
+// HP changed in Roll20 (see roll20-page.js "watching HP") -> the sheet page.
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message && message.type === "ROLL20_HP_CHANGED" && message.payload) {
+    reply("ROLL20_HP", undefined, { payload: message.payload });
+    sendResponse({ ok: true });
   }
 });

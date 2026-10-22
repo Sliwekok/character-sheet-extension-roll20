@@ -170,6 +170,63 @@ async function sendHpUpdate(update) {
   flashBadge(Boolean(result && result.ok));
 }
 
+// ---------------------------------------------------------------------------
+// HP changed in Roll20 -> character sheet tab
+// ---------------------------------------------------------------------------
+
+/** URL patterns of the character sheet app - the ones bridge-content.js runs on (manifest.json). */
+function sheetUrlPatterns() {
+  const scripts = chrome.runtime.getManifest().content_scripts || [];
+  const bridge = scripts.find((entry) => (entry.js || []).some((file) => file.endsWith("bridge-content.js")));
+  return bridge && Array.isArray(bridge.matches) ? bridge.matches : [];
+}
+
+/**
+ * roll20-page.js saw a synced character's HP change in Roll20 (sheet or token
+ * bar). Passed to every open character sheet tab; the page applies it only
+ * if it is showing that character. Dropped while an HP edit from the sheet
+ * is still waiting to go out (the sheet's newer value wins).
+ */
+async function receiveRoll20Hp(change) {
+  if (!change || !change.roll20CharacterId || typeof change.current !== "number" || !Number.isFinite(change.current)) return;
+  const links = await getLinks();
+  const sheetIds = Object.entries(links)
+    .filter(([, link]) => link && link.roll20CharacterId === change.roll20CharacterId)
+    .filter(([, link]) => !link.campaignId || !change.campaignId || link.campaignId === change.campaignId)
+    .map(([sheetCharacterId]) => sheetCharacterId);
+  if (sheetIds.length === 0) return;
+
+  const patterns = sheetUrlPatterns();
+  const tabs = patterns.length ? await chrome.tabs.query({ url: patterns }) : [];
+  for (const sheetCharacterId of sheetIds) {
+    if (pendingHp.has(sheetCharacterId)) continue;
+    const payload = {
+      sheetCharacterId,
+      current: change.current,
+      max: typeof change.max === "number" ? change.max : null,
+      temp: Number(change.temp) || 0,
+      via: change.via || "sheet",
+    };
+    let delivered = 0;
+    for (const tab of tabs) {
+      if (!tab.id) continue;
+      try {
+        await chrome.tabs.sendMessage(tab.id, { type: "ROLL20_HP_CHANGED", payload });
+        delivered++;
+      } catch {
+        // tab still loading / bridge not injected - nothing to deliver to there
+      }
+    }
+    const name = change.name || (links[sheetCharacterId] && links[sheetCharacterId].roll20Name) || "character";
+    await appendLog({
+      ts: Date.now(),
+      text: `HP ${name} ← Roll20${change.via && change.via.startsWith("token") ? " token" : ""}: ${change.current}${payload.max !== null ? `/${payload.max}` : ""}`,
+      status: delivered ? "sent" : "failed",
+      reason: delivered ? undefined : "No character sheet tab open - the change wasn't applied there",
+    });
+  }
+}
+
 async function inspectRoll20(name) {
   const found = await findGameTab();
   if (found.error) return { ok: false, error: found.error };
@@ -240,6 +297,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "HP_UPDATE") {
     if (message.payload && message.payload.sheetCharacterId) queueHpUpdate(message.payload);
     sendResponse?.({ ok: true, queued: true });
+    return false;
+  }
+
+  if (message.type === "R20_HP_CHANGED") {
+    receiveRoll20Hp(message.payload).catch(() => undefined);
     return false;
   }
 

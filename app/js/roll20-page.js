@@ -551,6 +551,16 @@
       character.save({ name: exportData.name });
     }
 
+    // The sync's own HP write must not be reported back to the sheet as a Roll20 change.
+    beginOwnWrite(character.id);
+    try {
+      return await writeSync(character, exportData, { created, linkedCharacter, profileKey, profile, plan });
+    } finally {
+      await endOwnWrite(character, profile, exportData.hp && exportData.hp.current);
+    }
+  }
+
+  async function writeSync(character, exportData, { created, linkedCharacter, profileKey, profile, plan }) {
     if (profile.engine === "dnd2024") {
       const warnings = [];
       // Characters made by an older version of this extension had no sheet template set.
@@ -602,21 +612,285 @@
     };
   }
 
-  async function hp({ update, link, profile: requestedProfile }) {
-    const character = findCharacter({ roll20CharacterId: link && link.roll20CharacterId, name: update.name });
-    if (!character) return { ok: false, error: `No Roll20 character "${update.name}" - press Sync with Roll20 first.` };
-    const { profile } = resolveProfile(requestedProfile);
+  /** Writes current HP into a Roll20 character the way its sheet profile needs. */
+  async function writeHp(character, current, max, sheetCharacterId, profile) {
     if (profile.engine === "dnd2024") {
-      const result = await setCurrentHp2024(character, update.current, update.max, update.sheetCharacterId);
+      const result = await setCurrentHp2024(character, current, max, sheetCharacterId);
       if (result.ok) refreshTokens(character);
-      return { ...result, roll20CharacterId: character.id };
+      return result;
     }
     if (profile.hpAttr === null) return { ok: false, error: `HP isn't mapped for the ${profile.label} sheet yet.` };
     const hpAttr = profile.hpAttr || "hp";
     await loadAttribs(character);
-    const changed = upsertAttr(character, attrIndex(character), { name: hpAttr, current: update.current, max: update.max });
-    return { ok: true, changed, roll20CharacterId: character.id };
+    const changed = upsertAttr(character, attrIndex(character), { name: hpAttr, current, max });
+    return { ok: true, changed };
   }
+
+  async function hp({ update, link, profile: requestedProfile }) {
+    const character = findCharacter({ roll20CharacterId: link && link.roll20CharacterId, name: update.name });
+    if (!character) return { ok: false, error: `No Roll20 character "${update.name}" - press Sync with Roll20 first.` };
+    const { profile } = resolveProfile(requestedProfile);
+    // HP coming from the sheet must not be reported back to it as a Roll20 change.
+    beginOwnWrite(character.id);
+    let result;
+    try {
+      result = await writeHp(character, update.current, update.max, update.sheetCharacterId, profile);
+    } finally {
+      await endOwnWrite(character, profile, update.current);
+    }
+    return { ...result, roll20CharacterId: character.id };
+  }
+
+  // --- Roll20 -> character sheet: watching HP ---------------------------------
+  //
+  // Synced characters (roll20-content.js sends their ids as WATCH, from the
+  // extension's characterLinks) are watched for HP changes made in Roll20 -
+  // on the character sheet or in a token's bar 1 bubble - and each change
+  // goes out as HP_CHANGED (-> roll20-content.js -> background.js -> the
+  // character sheet tab). Roll20 documents none of this, so three signals are
+  // combined:
+  //   1. a poll of what the sheet computes for `hp` (falling back to Roll20's
+  //      `custom_meta1` summary, or the `hp` attribute on non-2024 sheets),
+  //   2. `custom_meta1` change events on the character (checked at once),
+  //   3. bar1_value change events on the character's tokens. If a bar edit
+  //      doesn't reach the sheet (bar not linked, or the sheet snapped it
+  //      back), the value is written to the sheet too, so token, Roll20 sheet
+  //      and character sheet all agree.
+  // HP this extension writes itself (sync, HP_UPDATE from the character
+  // sheet) is never echoed back: the character is marked busy while writing,
+  // and what Roll20 shows afterwards becomes its known value.
+
+  const HP_POLL_MS = 1500;
+  const OWN_WRITE_GRACE_MS = 2500;
+  const TOKEN_SETTLE_MS = 1200;
+
+  const hpWatch = {
+    /** roll20CharacterId -> sheetCharacterId */
+    characters: new Map(),
+    profile: "auto",
+    /** roll20CharacterId -> { known, busyUntil, checking, again, tokenTimer, attribsLoaded } */
+    state: new Map(),
+    hookedCollections: new WeakSet(),
+    hookedCharacters: new WeakSet(),
+    ticking: false,
+  };
+  window.__csHpWatch = hpWatch; // inspectable from DevTools
+
+  function hpState(id) {
+    let s = hpWatch.state.get(id);
+    if (!s) {
+      s = { known: null, busyUntil: 0, checking: false, again: false, tokenTimer: null, attribsLoaded: false };
+      hpWatch.state.set(id, s);
+    }
+    return s;
+  }
+
+  /** A finite number, or NaN - an empty bar/attribute is "no value", not 0. */
+  function hpNumber(value) {
+    if (value === null || value === undefined) return NaN;
+    if (typeof value === "string" && value.trim() === "") return NaN;
+    const n = toNumber(value);
+    return Number.isFinite(n) ? n : NaN;
+  }
+
+  function watchProfile() {
+    try {
+      return resolveProfile(hpWatch.profile).profile;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Current HP as Roll20 shows it: { current, max, temp } or null if it can't be read. */
+  async function readHp(character, profile) {
+    if (!profile) return null;
+    const engine = window.__csDnd2024;
+    const meta = engine ? engine.readMetaHp(character.get("custom_meta1")) : null;
+    if (profile.engine === "dnd2024") {
+      const computed = await getComputed(character, "hp");
+      const isObject = computed && typeof computed === "object";
+      let current = hpNumber(isObject && "current" in computed ? computed.current : computed);
+      let max = isObject && "max" in computed ? hpNumber(computed.max) : NaN;
+      if (Number.isNaN(current) && meta) current = meta.current;
+      if (Number.isNaN(current)) return null;
+      if (Number.isNaN(max)) max = hpNumber(await getComputed(character, "hp_max"));
+      if (Number.isNaN(max) && meta) max = meta.max;
+      return { current, max: Number.isNaN(max) ? null : max, temp: meta ? meta.temp : 0 };
+    }
+    if (profile.hpAttr === null) return null;
+    const s = hpState(character.id);
+    if (!s.attribsLoaded) {
+      await loadAttribs(character);
+      s.attribsLoaded = true;
+    }
+    const attr = character.attribs.models.find((a) => a.get("name") === (profile.hpAttr || "hp"));
+    if (!attr) return null;
+    const current = hpNumber(attr.get("current"));
+    const max = hpNumber(attr.get("max"));
+    return Number.isNaN(current) ? null : { current, max: Number.isNaN(max) ? null : max, temp: 0 };
+  }
+
+  function beginOwnWrite(id) {
+    const s = hpState(id);
+    s.busyUntil = Infinity;
+    clearTimeout(s.tokenTimer);
+  }
+
+  async function endOwnWrite(character, profile, fallbackCurrent) {
+    const s = hpState(character.id);
+    let after = null;
+    try {
+      after = await readHp(character, profile);
+    } catch {
+      // keep the fallback below
+    }
+    if (after) s.known = after.current;
+    else if (typeof fallbackCurrent === "number") s.known = fallbackCurrent;
+    s.busyUntil = Date.now() + OWN_WRITE_GRACE_MS;
+  }
+
+  function emitHp(character, hp, via) {
+    const payload = {
+      roll20CharacterId: character.id,
+      sheetCharacterId: hpWatch.characters.get(character.id) || null,
+      name: character.get("name"),
+      current: hp.current,
+      max: hp.max,
+      temp: hp.temp || 0,
+      via,
+      campaignId: window.campaign_id || null,
+    };
+    if (window.__csHpWatchDebug) console.debug("[cs-roll20] HP changed in Roll20", payload);
+    window.postMessage({ source: FROM_PAGE, type: "HP_CHANGED", payload }, location.origin);
+  }
+
+  /** Reads one watched character's HP and reports it if it changed since last time. */
+  async function checkHp(id) {
+    if (!hpWatch.characters.has(id)) return;
+    const s = hpState(id);
+    if (s.checking) {
+      s.again = true;
+      return;
+    }
+    s.checking = true;
+    try {
+      if (Date.now() < s.busyUntil) return;
+      const character = campaign().characters.get(id);
+      if (!character) return;
+      const hp = await readHp(character, watchProfile());
+      if (!hp || Date.now() < s.busyUntil) return; // unreadable, or our own write started meanwhile
+      if (s.known === null) {
+        s.known = hp.current; // first look - a baseline, not a change
+        return;
+      }
+      if (hp.current === s.known) return;
+      s.known = hp.current;
+      emitHp(character, hp, "sheet");
+    } catch {
+      // Game not ready / Roll20 internals changed - try again on the next tick.
+    } finally {
+      s.checking = false;
+      if (s.again) {
+        s.again = false;
+        setTimeout(() => checkHp(id), 50);
+      }
+    }
+  }
+
+  function onTokenBarChange(graphic) {
+    const id = graphic && typeof graphic.get === "function" ? graphic.get("represents") : null;
+    if (!id || !hpWatch.characters.has(id)) return;
+    const value = hpNumber(graphic.get("bar1_value"));
+    if (Number.isNaN(value)) return;
+    const s = hpState(id);
+    if (Date.now() < s.busyUntil) return;
+    if (s.known === null) {
+      s.known = value;
+      return;
+    }
+    if (value === s.known) return; // e.g. the bar snapping back - a pending edit still settles below
+    clearTimeout(s.tokenTimer);
+    s.tokenTimer = setTimeout(() => settleTokenHp(id, value, graphic).catch(() => undefined), TOKEN_SETTLE_MS);
+  }
+
+  /** A token's bar 1 was set to `value`: make sure the sheet has it too, then report it. */
+  async function settleTokenHp(id, value, graphic) {
+    const s = hpState(id);
+    if (Date.now() < s.busyUntil || !hpWatch.characters.has(id)) return;
+    const character = campaign().characters.get(id);
+    if (!character) return;
+    const profile = watchProfile();
+    const hp = await readHp(character, profile).catch(() => null);
+    const tokenMax = hpNumber(graphic.get("bar1_max"));
+    const max = hp && hp.max !== null ? hp.max : Number.isNaN(tokenMax) ? null : tokenMax;
+    const reported = { current: value, max, temp: hp ? hp.temp : 0 };
+    if (hp && hp.current === value) {
+      // Roll20 passed the bar edit on to the sheet itself.
+      if (s.known !== value) {
+        s.known = value;
+        emitHp(character, reported, "token");
+      }
+      return;
+    }
+    if (!profile) return;
+    beginOwnWrite(id);
+    let result;
+    try {
+      result = await writeHp(character, value, max === null ? value : max, hpWatch.characters.get(id) || character.id, profile);
+    } catch (error) {
+      result = { ok: false, error: error && error.message ? error.message : String(error) };
+    } finally {
+      await endOwnWrite(character, profile, value);
+    }
+    if (window.__csHpWatchDebug && !result.ok) console.debug("[cs-roll20] token HP couldn't be written to the sheet", result.error);
+    emitHp(character, reported, result.ok ? "token" : "token-only");
+  }
+
+  /** Attaches the event listeners (idempotent - called every tick, since pages load their tokens lazily). */
+  function hookHpSignals(c) {
+    for (const id of hpWatch.characters.keys()) {
+      const character = c.characters.get(id);
+      if (!character || typeof character.on !== "function" || hpWatch.hookedCharacters.has(character)) continue;
+      hpWatch.hookedCharacters.add(character);
+      character.on("change:custom_meta1", () => checkHp(id));
+    }
+    const pages = c.pages && c.pages.models ? c.pages.models : [];
+    for (const page of pages) {
+      const graphics = page && page.thegraphics;
+      if (!graphics || typeof graphics.on !== "function" || hpWatch.hookedCollections.has(graphics)) continue;
+      hpWatch.hookedCollections.add(graphics);
+      graphics.on("change:bar1_value", onTokenBarChange);
+    }
+  }
+
+  async function hpTick() {
+    if (hpWatch.characters.size === 0) return;
+    let c;
+    try {
+      c = campaign();
+    } catch {
+      return; // game not loaded yet
+    }
+    hookHpSignals(c);
+    for (const id of hpWatch.characters.keys()) await checkHp(id);
+  }
+
+  function setHpWatch({ characters, profile }) {
+    const list = Array.isArray(characters) ? characters : [];
+    hpWatch.characters = new Map(list.filter((e) => e && e.roll20CharacterId).map((e) => [e.roll20CharacterId, e.sheetCharacterId || null]));
+    hpWatch.profile = profile || "auto";
+    hpTick().catch(() => undefined);
+  }
+
+  setInterval(() => {
+    if (hpWatch.ticking) return;
+    hpWatch.ticking = true;
+    hpTick()
+      .catch(() => undefined)
+      .finally(() => {
+        hpWatch.ticking = false;
+      });
+  }, HP_POLL_MS);
 
   /** Read-only dump of one character's Roll20 data, for mapping a sheet template's fields. */
   async function inspect({ name }) {
@@ -669,7 +943,12 @@
   window.addEventListener("message", async (event) => {
     if (event.source !== window) return;
     const data = event.data;
-    if (!data || data.source !== FROM_ISOLATED || !handlers[data.type]) return;
+    if (!data || data.source !== FROM_ISOLATED) return;
+    if (data.type === "WATCH") {
+      setHpWatch(data.payload || {});
+      return;
+    }
+    if (!handlers[data.type]) return;
     let result;
     try {
       result = await handlers[data.type](data.payload || {});
@@ -678,4 +957,7 @@
     }
     window.postMessage({ source: FROM_PAGE, requestId: data.requestId, result }, location.origin);
   });
+
+  // roll20-content.js may have run first - ask it for the list of characters to watch.
+  window.postMessage({ source: FROM_PAGE, type: "PAGE_READY" }, location.origin);
 })();
