@@ -3,6 +3,7 @@ const STORAGE_KEY_ENABLED = "autoForwardEnabled";
 const STORAGE_KEY_PROFILE = "sheetProfile";
 const STORAGE_KEY_LINKS = "characterLinks";
 const STORAGE_KEY_FORMAT = "chatFormat";
+const STORAGE_KEY_UPDATE = "pendingUpdate";
 
 async function renderStatus() {
   const tabs = await chrome.tabs.query({ url: "*://app.roll20.net/*" });
@@ -137,6 +138,78 @@ async function inspect() {
   el.className = "status ok";
 }
 
+// --- Updates -----------------------------------------------------------------
+
+function setUpdateStatus(text, kind) {
+  const el = document.getElementById("updateStatus");
+  el.textContent = text;
+  el.className = `status${kind ? ` ${kind}` : ""}`;
+}
+
+/** Shows "Restart to update" when background.js has recorded a downloaded update. */
+async function renderPendingUpdate() {
+  const stored = await chrome.storage.local.get([STORAGE_KEY_UPDATE]);
+  const pending = stored[STORAGE_KEY_UPDATE];
+  const applyBtn = document.getElementById("applyUpdateBtn");
+  applyBtn.hidden = !pending;
+  if (pending) {
+    setUpdateStatus(`Version ${pending.version} is ready to install.`, "ok");
+    applyBtn.textContent = `Restart to update to v${pending.version}`;
+  }
+  return Boolean(pending);
+}
+
+/** "development" = loaded unpacked from a folder; those never update from the Web Store. */
+async function isUnpacked() {
+  try {
+    const self = await chrome.management.getSelf();
+    return self.installType === "development";
+  } catch {
+    return false;
+  }
+}
+
+async function checkForUpdates() {
+  const button = document.getElementById("checkUpdateBtn");
+  if (await isUnpacked()) {
+    setUpdateStatus("Developer copy (loaded unpacked) - pull the new files into its folder, then press Reload.", "warn");
+    button.textContent = "Reload extension";
+    button.onclick = () => chrome.runtime.reload();
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = "Checking…";
+  try {
+    const result = await chrome.runtime.requestUpdateCheck();
+    // Chrome 109+ resolves with { status, version }; older builds passed (status, details).
+    const status = typeof result === "string" ? result : result && result.status;
+    const version = result && typeof result === "object" ? result.version : undefined;
+    if (status === "update_available") {
+      // Chrome is downloading it now; onUpdateAvailable (background.js) fires when it's ready.
+      if (!(await renderPendingUpdate())) {
+        setUpdateStatus(`Version ${version || "(new)"} found - downloading…`, "ok");
+      }
+    } else if (status === "throttled") {
+      setUpdateStatus("Checked too recently - try again in a few minutes.", "warn");
+    } else {
+      setUpdateStatus(`You have the latest version (v${chrome.runtime.getManifest().version}).`, "ok");
+    }
+  } catch (error) {
+    setUpdateStatus(`Update check failed: ${error && error.message ? error.message : error}`, "warn");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Check for updates";
+  }
+}
+
+function initUpdates() {
+  document.getElementById("version").textContent = `v${chrome.runtime.getManifest().version}`;
+  document.getElementById("checkUpdateBtn").onclick = checkForUpdates;
+  document.getElementById("applyUpdateBtn").addEventListener("click", () => chrome.runtime.reload());
+  renderPendingUpdate();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   renderStatus();
   renderLog();
@@ -144,6 +217,7 @@ document.addEventListener("DOMContentLoaded", () => {
   renderSync();
   initProfileSelect();
   initFormatSelect();
+  initUpdates();
   document.getElementById("inspectBtn").addEventListener("click", inspect);
 
   document.getElementById("testBtn").addEventListener("click", async () => {
@@ -165,4 +239,5 @@ document.addEventListener("DOMContentLoaded", () => {
 chrome.storage.onChanged.addListener((changes) => {
   if (changes[STORAGE_KEY_LOG]) renderLog();
   if (changes[STORAGE_KEY_LINKS]) renderSync();
+  if (changes[STORAGE_KEY_UPDATE]) renderPendingUpdate();
 });

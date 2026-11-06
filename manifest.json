@@ -1,8 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Character Sheet → Roll20",
-  "description": "Forwards rolls from your D&D character sheet into Roll20 chat, and syncs whole characters (with live two-way HP) into your Roll20 game.",
-  "version": "1.8",
+  "description": "Sends rolls from your D&D character sheet to Roll20 chat and syncs characters into your game, with live two-way HP.",
+  "homepage_url": "https://github.com/Sliwekok/character-sheet-extension-roll20",
+  "version": "1.9",
+  "short_name": "Sheet→Roll20",
   "minimum_chrome_version": "111",
   "action": {
     "default_popup": "app/html/popup.html",
@@ -20,8 +22,7 @@
     "128": "assets/icon128.png"
   },
   "permissions": [
-    "storage",
-    "tabs"
+    "storage"
   ],
   "host_permissions": [
     "*://app.roll20.net/*",

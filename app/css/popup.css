@@ -35,6 +35,16 @@ body {
   font-weight: 600;
 }
 
+.version {
+  margin-left: auto;
+  font-size: 11px;
+  color: #8b84a8;
+}
+
+[hidden] {
+  display: none !important;
+}
+
 .status {
   font-size: 12.5px;
   padding: 8px 10px;

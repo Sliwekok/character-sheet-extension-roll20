@@ -333,3 +333,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 });
+
+// ---------------------------------------------------------------------------
+// Updates (Chrome Web Store)
+// ---------------------------------------------------------------------------
+// Chrome checks the Web Store for a new version on its own every few hours and
+// installs it once this worker goes idle. The popup's "Check for updates"
+// button asks for a check right away (chrome.runtime.requestUpdateCheck); when
+// the new version has been downloaded, onUpdateAvailable records it here so
+// the popup can offer "Restart to update" (chrome.runtime.reload()).
+
+const STORAGE_KEY_UPDATE = "pendingUpdate"; // { version, seenAt } while an update waits to be installed
+
+chrome.runtime.onUpdateAvailable.addListener((details) => {
+  chrome.storage.local.set({ [STORAGE_KEY_UPDATE]: { version: details.version, seenAt: Date.now() } });
+});
+
+chrome.runtime.onInstalled.addListener(async (details) => {
+  await chrome.storage.local.remove(STORAGE_KEY_UPDATE); // whatever was pending is installed now
+  if (details.reason === "update" && details.previousVersion !== chrome.runtime.getManifest().version) {
+    await appendLog({
+      ts: Date.now(),
+      text: `Extension updated ${details.previousVersion} → ${chrome.runtime.getManifest().version}`,
+      status: "sent",
+    });
+  }
+});

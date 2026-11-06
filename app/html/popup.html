@@ -11,6 +11,7 @@
       <header class="header">
         <img src="../../assets/icon32.png" alt="" class="logo" />
         <h1 class="title">Sheet &rarr; Roll20</h1>
+        <span id="version" class="version"></span>
       </header>
 
       <div id="status" class="status">Checking&hellip;</div>
@@ -54,6 +55,14 @@
 
       <h2 class="section-title">Recent activity</h2>
       <div id="log" class="log"></div>
+
+      <h2 class="section-title">Updates</h2>
+      <div id="updateStatus" class="status">Updates install automatically from the Chrome Web Store.</div>
+      <div class="actions">
+        <button id="checkUpdateBtn" class="btn btn-secondary">Check for updates</button>
+        <button id="applyUpdateBtn" class="btn btn-primary" hidden>Restart to update</button>
+      </div>
+      <small class="hint">After the extension restarts, refresh open Roll20 and character sheet tabs so they reconnect.</small>
 
       <footer class="footer">
         <small>Rolls forward automatically (public or whispered to the GM, per the sheet's toggle). Press "Sync with Roll20" on a character sheet to send the whole character; its HP then stays in sync both ways (HP changed on the Roll20 sheet or a token comes back to the character sheet).</small>

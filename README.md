@@ -62,6 +62,14 @@ logged as "failed" in the popup instead of silently disappearing.
 
 ## Installing
 
+**From the Chrome Web Store** (recommended) - install it from the store
+link on the Character Sheet app's *About* page. Updates then arrive on their
+own; the popup's **Check for updates** button checks right away and, once a
+new version is downloaded, offers **Restart to update**. After the extension
+restarts, refresh open Roll20 and character sheet tabs so they reconnect.
+
+**From source (development)**
+
 1. Open `chrome://extensions`, enable **Developer mode** (top right).
 2. Click **Load unpacked** and select this folder (the one with
    `manifest.json` in it).
@@ -71,8 +79,27 @@ logged as "failed" in the popup instead of silently disappearing.
    side works without touching the character sheet), and a log of recent
    attempts.
 
-After editing any file, reload the extension from `chrome://extensions`
-(the background worker and content scripts aren't hot-reloaded).
+After editing any file, reload the extension from `chrome://extensions` (or
+press **Reload extension** in the popup's *Updates* section - an unpacked copy
+shows that instead of *Check for updates*). The background worker and content
+scripts aren't hot-reloaded.
+
+Don't keep the store version and an unpacked copy **enabled** at the same time:
+both attach to Roll20 and every roll is posted twice.
+
+## Publishing a new version (Chrome Web Store)
+
+1. Bump `version` in `manifest.json` (it must be higher than the published one).
+2. `node scripts/package.mjs` - validates the manifest against the store's
+   limits and writes `dist/character-sheet-roll20-v<version>.zip`
+   (`--no-localhost` leaves the localhost / 127.0.0.1 permissions out).
+3. Developer Dashboard → the item → *Package* → *Upload new package* → *Submit for review*.
+4. Tag the commit (`git tag v<version> && git push --tags`) and, optionally,
+   attach the zip to a GitHub release - the Character Sheet app's *About* page
+   shows the latest release.
+
+Listing texts, permission justifications, screenshots and the promo tile are in
+[`store/`](store/STORE_LISTING.md); the privacy policy is [`PRIVACY.md`](PRIVACY.md).
 
 ## The character-sheet-side change
 
