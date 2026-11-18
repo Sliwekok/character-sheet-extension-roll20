@@ -146,8 +146,18 @@ Roll20, and HP changed in Roll20 - on the character's Roll20 sheet or in a
 token's bar 1 bubble - comes back to the character sheet. Nothing else
 streams - press the button again to push other changes.
 
-You need to be the GM of the game (Roll20 only lets GMs create characters),
-and the game itself must be open (Launch Game), not just the campaign page.
+Both GMs and players can sync; the game itself must be open (Launch Game),
+not just the campaign page.
+
+- **GM**: sync can create and update any character in the game.
+- **Player**: sync only touches characters you control (your Roll20 player
+  is in the character's "Can Be Edited & Controlled By" list, or it says
+  "All Players"). A character created by your first sync is put in your
+  journal and controlled by you, just like one made with Journal > "+ Add".
+  If a character with the same name already exists but isn't yours, the
+  sync stops and asks you to get control from the GM (or rename yours).
+  Token bars are linked only on tokens you control. HP keeps syncing both
+  ways for your characters.
 
 ### How it works
 

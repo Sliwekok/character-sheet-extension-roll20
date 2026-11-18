@@ -3,7 +3,7 @@
   "name": "Character Sheet → Roll20",
   "description": "Sends rolls from your D&D character sheet to Roll20 chat and syncs characters into your game, with live two-way HP.",
   "homepage_url": "https://github.com/Sliwekok/character-sheet-extension-roll20",
-  "version": "1.9",
+  "version": "1.10",
   "short_name": "Sheet→Roll20",
   "minimum_chrome_version": "111",
   "action": {

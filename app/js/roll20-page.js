@@ -54,6 +54,46 @@
     };
   })();
 
+  // --- players & permissions --------------------------------------------------
+  //
+  // GMs can edit every character. Players (non-GM) can only edit characters
+  // whose "Can Be Edited & Controlled By" lists them (or "All Players"), so
+  // for them sync only ever touches such characters, and characters it
+  // creates are made theirs - the same way Roll20 does when a player presses
+  // "+ Add > Character" in the Journal.
+
+  const isGM = () => window.is_gm !== false;
+
+  /** The Roll20 player id of whoever has this tab open, or null if Roll20 doesn't expose it. */
+  function currentPlayerId() {
+    const player = window.currentPlayer;
+    if (player && player.id) return String(player.id);
+    if (window.d20_player_id) return String(window.d20_player_id);
+    return null;
+  }
+
+  function controllers(character) {
+    return String(character.get("controlledby") || "")
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
+  }
+
+  /** Whether the current user may edit this character (GMs always may). */
+  function canEdit(character) {
+    if (isGM()) return true;
+    const list = controllers(character);
+    if (list.includes("all")) return true;
+    const me = currentPlayerId();
+    return Boolean(me && list.includes(me));
+  }
+
+  function notYoursError(character) {
+    return new Error(
+      `You don't control the Roll20 character "${character.get("name")}". Ask the GM to add you to its "Can Be Edited & Controlled By" list (or rename your character), then sync again.`
+    );
+  }
+
   // --- characters -------------------------------------------------------------
 
   function findCharacter({ roll20CharacterId, name }) {
@@ -64,7 +104,13 @@
     }
     if (!name) return null;
     const wanted = name.trim().toLowerCase();
-    const matches = chars.models.filter((c) => String(c.get("name") || "").trim().toLowerCase() === wanted);
+    let matches = chars.models.filter((c) => String(c.get("name") || "").trim().toLowerCase() === wanted);
+    // A player may see someone else's character with the same name (e.g. an NPC
+    // shared in the journal) - their own one wins.
+    if (matches.length > 1 && !isGM()) {
+      const mine = matches.filter(canEdit);
+      if (mine.length > 0) matches = mine;
+    }
     if (matches.length > 1) {
       throw new Error(`There are ${matches.length} Roll20 characters named "${name}" - rename or delete the extras, then sync again.`);
     }
@@ -74,14 +120,25 @@
   async function createCharacter(name, sheetName) {
     const chars = campaign().characters;
     if (typeof chars.create !== "function") throw new Error("Can't create characters here (Roll20's character list has no create()).");
+    const gm = isGM();
+    const me = gm ? null : currentPlayerId();
+    if (!gm && !me) throw new Error("Couldn't tell which Roll20 player you are - reload the Roll20 tab and sync again, or ask the GM to create the character and give you control of it.");
     // Same fields Roll20's own "new character" uses (characterSheet.createCharacter):
     // the sheet template name, then journal folder + sheet defaults once saved.
-    const attrs = { name, inplayerjournals: "", controlledby: "", ...(sheetName ? { charactersheetname: sheetName } : {}) };
+    // A player's character goes into their journal and is controlled by them,
+    // otherwise they couldn't see or edit what they just made.
+    const attrs = {
+      name,
+      inplayerjournals: gm ? "" : me,
+      controlledby: gm ? "" : me,
+      ...(sheetName ? { charactersheetname: sheetName } : {}),
+    };
     const character = chars.create(attrs, {
       success: (model) => {
         try {
           const journal = model.d20 && model.d20.journal;
-          if (journal && journal.addItemToFolderStructure) journal.addItemToFolderStructure(model.id);
+          // The journal folder structure belongs to the GM - players' characters stay at its root.
+          if (gm && journal && journal.addItemToFolderStructure) journal.addItemToFolderStructure(model.id);
           if (journal && journal.applyCharacterSheetDefaults) journal.applyCharacterSheetDefaults(model);
         } catch {
           // Cosmetic only (journal placement) - the character itself exists.
@@ -91,7 +148,13 @@
     // Firebase-backed models get their id/attribs collection straight away,
     // but give Roll20 a moment to register the new journal entry.
     for (let i = 0; i < 20 && !(character && character.id && character.attribs); i++) await wait(100);
-    if (!character || !character.id || !character.attribs) throw new Error("Roll20 didn't finish creating the character.");
+    if (!character || !character.id || !character.attribs) {
+      throw new Error(
+        gm
+          ? "Roll20 didn't finish creating the character."
+          : "Roll20 didn't finish creating the character - if this game doesn't let players create characters, ask the GM to create it and give you control of it, then sync again."
+      );
+    }
     return character;
   }
 
@@ -432,8 +495,12 @@
       if (!graphics) continue;
       for (const g of graphics) {
         if (g.get("represents") !== character.id) continue;
-        if (g.get("bar1_link") !== links.bar1_link || g.get("bar2_link") !== links.bar2_link) g.save(links);
-        tokens++;
+        try {
+          if (g.get("bar1_link") !== links.bar1_link || g.get("bar2_link") !== links.bar2_link) g.save(links);
+          tokens++;
+        } catch {
+          // A player can't edit a token they don't control - the GM can link it, or the next sync retries.
+        }
       }
     }
     let defaultToken = false;
@@ -536,7 +603,6 @@
     if (exportData.version > SUPPORTED_EXPORT_VERSION) {
       throw new Error("The character sheet app is newer than this extension - update/reload the extension.");
     }
-    if (window.is_gm === false) throw new Error("Only the GM can create or update characters this way.");
 
     const { key: profileKey, profile } = resolveProfile(requestedProfile);
     const plan = profile.build(exportData);
@@ -544,6 +610,8 @@
     const linkedCharacter = link && link.roll20CharacterId ? campaign().characters.get(link.roll20CharacterId) : null;
     let character = linkedCharacter || findCharacter({ name: exportData.name });
     let created = false;
+    // Players may only update characters they control (GMs: any).
+    if (character && !canEdit(character)) throw notYoursError(character);
     if (!character) {
       character = await createCharacter(exportData.name, profile.sheetName);
       created = true;
@@ -629,6 +697,7 @@
   async function hp({ update, link, profile: requestedProfile }) {
     const character = findCharacter({ roll20CharacterId: link && link.roll20CharacterId, name: update.name });
     if (!character) return { ok: false, error: `No Roll20 character "${update.name}" - press Sync with Roll20 first.` };
+    if (!canEdit(character)) return { ok: false, error: notYoursError(character).message };
     const { profile } = resolveProfile(requestedProfile);
     // HP coming from the sheet must not be reported back to it as a Roll20 change.
     beginOwnWrite(character.id);
@@ -833,6 +902,12 @@
       return;
     }
     if (!profile) return;
+    if (!canEdit(character)) {
+      // Not ours to write (e.g. control was taken away) - still tell the character sheet.
+      s.known = value;
+      emitHp(character, reported, "token-only");
+      return;
+    }
     beginOwnWrite(id);
     let result;
     try {
@@ -932,7 +1007,20 @@
   function status() {
     try {
       const c = campaign();
-      return { ok: true, loaded: true, isGM: window.is_gm, campaignId: window.campaign_id || null, characters: c.characters.length, detectedProfile: detectProfile() };
+      const gm = isGM();
+      const playerId = currentPlayerId();
+      // What a player can sync into: characters they control (GM: everything).
+      const editable = gm ? c.characters.length : c.characters.models.filter(canEdit).length;
+      return {
+        ok: true,
+        loaded: true,
+        isGM: window.is_gm,
+        playerId,
+        editableCharacters: editable,
+        campaignId: window.campaign_id || null,
+        characters: c.characters.length,
+        detectedProfile: detectProfile(),
+      };
     } catch (error) {
       return { ok: true, loaded: false, error: error.message };
     }

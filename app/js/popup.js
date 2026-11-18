@@ -73,9 +73,12 @@ async function renderSync() {
   const el = document.getElementById("syncStatus");
   const info = await chrome.runtime.sendMessage({ type: "GET_ROLL20_STATUS" });
   if (info && info.loaded) {
-    const gm = info.isGM === false ? " - you're not GM here, sync needs a GM" : "";
-    el.textContent = `Game loaded (${info.characters} characters, detected: ${PROFILE_LABELS[info.detectedProfile] || info.detectedProfile})${gm}`;
-    el.className = `status ${info.isGM === false ? "warn" : "ok"}`;
+    const player =
+      info.isGM === false
+        ? ` - you're a player here: sync creates characters as yours and updates ones you control${typeof info.editableCharacters === "number" ? ` (${info.editableCharacters})` : ""}`
+        : "";
+    el.textContent = `Game loaded (${info.characters} characters, detected: ${PROFILE_LABELS[info.detectedProfile] || info.detectedProfile})${player}`;
+    el.className = "status ok";
   } else {
     el.textContent = (info && info.error) || "Roll20 game not loaded";
     el.className = "status warn";
